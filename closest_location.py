@@ -71,39 +71,63 @@ def calculate_matching_score(destination: dict) -> float:
 def get_sorted_destinations(job_requirements, destinations: list, objectstores, dataset_attributes) -> list:
     """
     Sorts the destinations based on the matching score and distance to the input data location.
+    The sorting considers a histogram of free resources (CPU and memory) rather than aggregated values.
     """
-    sorted_destinations = []
     cpu_required = job_requirements.cores
-    memory_required = job_requirements.mem
-
-    # Calculate the distance to the input data location for all destinations
-    for dest in destinations:
-        dest['distance_to_data'] = closest_destination(dest, objectstores, dataset_attributes)
+    memory_required = job_requirements.memory * 1024  # The memory in TPV is in GB, so we do a conversion to MB because the cluster metrics are in MB.
 
     # Filter out destinations that can't meet basic requirements based on the "real-time" data
-    viable_destinations = [
-        dest for dest in destinations if dest['dest_status'] == 'online'
-        and dest['dest_unconsumed_cpu'] > cpu_required
-        and dest['dest_unconsumed_mem'] > memory_required
-    ]
+    viable_destinations = []
+    for dest in destinations:
+        # Check if the destination_status is 'online'
+        if dest['dest_status'] == 'online':
+            cpu_histogram = dest.get('dest_cpu_histogram', {})
+            memory_histogram = dest.get('dest_memory_histogram', {})
 
-    # Fallback case if no viable destinations are found (e.g. no destination has enough resources)
+            # Check if any machine in the cluster has enough free CPUs and memory
+            has_sufficient_cpu_resources = False
+            has_sufficient_memory_resources = False
+            for free_cpus, count in cpu_histogram.items():
+                free_cpus = int(free_cpus)
+                if free_cpus >= cpu_required:
+                    has_sufficient_cpu_resources = True
+                    break
+
+            for free_memory, count in memory_histogram.items():
+                free_memory = int(free_memory)
+                if free_memory >= memory_required:
+                    has_sufficient_memory_resources = True
+                    break
+
+            # Only consider this destination if it has enough resources
+            if has_sufficient_cpu_resources and has_sufficient_memory_resources:
+                # Calculate the distance to the input data location
+                dest['distance_to_data'] = closest_destination(dest, objectstores, dataset_attributes)
+                viable_destinations.append(dest)
+
+    # Fallback case if no viable destinations are found
     if not viable_destinations:
-        sorted_destinations = sorted(destinations, key=lambda x: x['distance_to_data'])
+        online_destinations = []
+        for dest in destinations:
+            if dest.get('dest_status') == 'online':
+                dest['distance_to_data'] = closest_destination(dest, objectstores, dataset_attributes)
+                online_destinations.append(dest)
+
+        sorted_destinations = sorted(online_destinations, key=lambda x: x['distance_to_data'])
         return [dest['destination_id'] for dest in sorted_destinations]
-
-    # Sort by distance to input data location (ascending)
-    viable_destinations.sort(key=lambda x: x['distance_to_data'])
-
-    print("viable dest: ", viable_destinations)
 
     # Calculate matching scores for each viable destination
     for dest in viable_destinations:
         dest['matching_score'] = calculate_matching_score(dest)
+        #ToDo Calculate distance to input data location as well for possible secondary sorting to include both
+        # matching score and distance.
+        # dest['distance_to_data'] = closest_destination(dest, objectstores, dataset_attributes)
 
     # Sort by matching score (descending)
     viable_destinations.sort(key=lambda x: x['matching_score'], reverse=True)
 
+    # ToDo: Consider distance as a secondary sorting criterion and below is a possible implementation
+    # viable_destinations.sort(key=lambda x: ( -x['matching_score'], x['distance_to_data']))
+
     sorted_destinations = [dest['destination_id'] for dest in viable_destinations]
-    print("sorted dest: ", sorted_destinations)
     return sorted_destinations
