@@ -41,6 +41,7 @@ def query_construction(destination, tool_id):
     queries['dest_unconsumed_cpu_query'] = f"SELECT last(\"unclaimed_cpus\") FROM \"htcondor_cluster_usage\" WHERE \"destination_id\"='{destination}'"
     queries['dest_unconsumed_mem_query'] = f"SELECT last(\"unclaimed_memory\") FROM \"htcondor_cluster_usage\" WHERE \"destination_id\"='{destination}'"
     queries['dest_status'] = f"SELECT last(\"destination_status\") FROM \"htcondor_cluster_usage\" WHERE \"destination_id\"='{destination}'"
+    queries['carbon_intensity_query'] = f"SELECT last(\"carbon_intensity\") FROM \"energy_metrics\" WHERE \"destination_id\"='{destination}'"
 
     return queries
 
@@ -73,6 +74,7 @@ def destination_statistics(influx_client, static_data):
         metrics["dest_unconsumed_cpu"] = get_influx_results(influx_client, queries['dest_unconsumed_cpu_query']) or 0
         metrics["dest_unconsumed_mem"] = get_influx_results(influx_client, queries['dest_unconsumed_mem_query']) or 0
         metrics["dest_status"] = get_influx_results(influx_client, queries['dest_status']) or ""
+        metrics["carbon_intensity"] = get_influx_results(influx_client, queries['carbon_intensity_query']) or 0
         metrics["latitude"] = dest.latitude
         metrics["longitude"] = dest.longitude
 
